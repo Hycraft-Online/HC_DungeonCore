@@ -1,0 +1,526 @@
+package com.hcdungeonparty.managers;
+
+import com.hcdungeonparty.HC_DungeonPartyPlugin;
+import com.hcdungeonparty.config.DungeonPartyGameplayConfig;
+import com.hcdungeonparty.integration.PartyModIntegration;
+import com.hcdungeonparty.models.DungeonSession;
+import com.hcdungeonparty.models.MemberState;
+import com.hcfactions.HC_FactionsPlugin;
+import com.hcfactions.models.Faction;
+import com.hcfactions.models.PlayerData;
+import com.hypixel.hytale.component.Ref;
+import com.hypixel.hytale.component.Store;
+import com.hypixel.hytale.math.vector.Transform;
+import com.hypixel.hytale.math.vector.Vector3d;
+import com.hypixel.hytale.math.vector.Vector3f;
+import com.hypixel.hytale.server.core.HytaleServer;
+import com.hypixel.hytale.server.core.Message;
+import com.hypixel.hytale.server.core.asset.type.gameplay.GameplayConfig;
+import com.hypixel.hytale.server.core.modules.entity.teleport.Teleport;
+import com.hypixel.hytale.server.core.universe.PlayerRef;
+import com.hypixel.hytale.server.core.universe.Universe;
+import com.hypixel.hytale.server.core.universe.world.World;
+import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
+
+import java.awt.Color;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+
+/**
+ * Manages dungeon sessions with shared party lives.
+ * Creates sessions when players enter dungeon worlds with DungeonPartyGameplayConfig enabled.
+ */
+public class DungeonSessionManager {
+
+    private static DungeonSessionManager instance;
+
+    private HC_DungeonPartyPlugin plugin;
+
+    // Sessions indexed by player UUID (for quick lookup)
+    private final Map<UUID, DungeonSession> sessionsByPlayer = new ConcurrentHashMap<>();
+
+    // Sessions indexed by dungeon world UUID
+    private final Map<UUID, DungeonSession> sessionsByWorld = new ConcurrentHashMap<>();
+
+    // Player faction spawns cache (optional, used if HC_Factions is available)
+    private final Map<UUID, FactionSpawnInfo> factionSpawnCache = new ConcurrentHashMap<>();
+
+    /**
+     * Faction spawn info for returning players after dungeon.
+     */
+    public static class FactionSpawnInfo {
+        public final World world;
+        public final Transform transform;
+
+        public FactionSpawnInfo(World world, Transform transform) {
+            this.world = world;
+            this.transform = transform;
+        }
+    }
+
+    public static void initialize(HC_DungeonPartyPlugin plugin) {
+        instance = new DungeonSessionManager();
+        instance.plugin = plugin;
+    }
+
+    public static DungeonSessionManager getInstance() {
+        return instance;
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // SESSION MANAGEMENT
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Handle a player entering a world. If the world has DungeonPartyGameplayConfig enabled,
+     * create or join a session.
+     *
+     * @param playerRef The player entering the world
+     * @param world The world being entered
+     * @param returnTransform The player's previous location (for return on exit)
+     */
+    public void handlePlayerEnterWorld(PlayerRef playerRef, World world, Transform returnTransform) {
+        UUID playerUuid = playerRef.getUuid();
+        UUID worldUuid = world.getWorldConfig().getUuid();
+
+        // Check if this world has DungeonParty config enabled
+        DungeonPartyGameplayConfig config = getDungeonPartyConfig(world);
+        if (config == null || !config.isEnabled()) {
+            return; // Not a dungeon party world
+        }
+
+        // Check if there's already a session for this world
+        DungeonSession existingSession = sessionsByWorld.get(worldUuid);
+        if (existingSession != null) {
+            // Join existing session
+            if (!existingSession.isMember(playerUuid)) {
+                existingSession.registerMember(playerUuid, playerRef, returnTransform);
+                sessionsByPlayer.put(playerUuid, existingSession);
+                log(Level.INFO, "Player " + playerRef.getUsername() + " joined existing dungeon session");
+            }
+            // Mark player as entered (after delay to handle teleport race)
+            scheduleMarkPlayerEntered(existingSession, playerUuid, playerRef);
+            return;
+        }
+
+        // Check if player already has a session (shouldn't happen normally)
+        if (sessionsByPlayer.containsKey(playerUuid)) {
+            log(Level.WARNING, "Player " + playerRef.getUsername() + " already in a session, skipping");
+            return;
+        }
+
+        // Create a new session
+        String partyId = null;
+        Set<UUID> partyMembers = new HashSet<>();
+
+        // Check for party
+        if (PartyModIntegration.isAvailable() && PartyModIntegration.isInParty(playerUuid)) {
+            partyId = PartyModIntegration.getPartyId(playerUuid);
+            partyMembers = PartyModIntegration.getPartyMemberUuids(playerUuid);
+        }
+
+        // Create session with config values
+        DungeonSession session = new DungeonSession(
+            partyId,
+            worldUuid,
+            config.getLivesPerPlayer(),
+            config.getRespawnDelaySeconds(),
+            config.shouldPreventItemLoss()
+        );
+
+        // Store world reference
+        session.setDungeonWorld(world);
+
+        // Set spawn position from world spawn point
+        var spawnProvider = world.getWorldConfig().getSpawnProvider();
+        if (spawnProvider != null) {
+            // Use world spawn point as dungeon spawn
+            Transform spawnTransform = spawnProvider.getSpawnPoint(world, playerUuid);
+            session.setSpawnPosition(spawnTransform.getPosition());
+            session.setSpawnRotation(spawnTransform.getRotation());
+        } else {
+            // Fallback to player's entry position
+            session.setSpawnPosition(returnTransform.getPosition());
+            session.setSpawnRotation(returnTransform.getRotation());
+        }
+
+        // Register the entering player
+        session.registerMember(playerUuid, playerRef, returnTransform);
+        sessionsByPlayer.put(playerUuid, session);
+        sessionsByWorld.put(worldUuid, session);
+
+        // Log session creation
+        if (partyId != null && partyMembers.size() > 1) {
+            log(Level.INFO, "Created dungeon session for party of " + partyMembers.size() +
+                " with " + session.getTotalLives() + " shared lives");
+            session.broadcastToMembers(Message.raw("Dungeon started! Party has " +
+                session.getTotalLives() + " shared lives.").color(Color.GREEN));
+        } else {
+            log(Level.INFO, "Created solo dungeon session with " + session.getTotalLives() + " lives");
+            playerRef.sendMessage(Message.raw("Dungeon started! You have " +
+                session.getTotalLives() + " lives.").color(Color.GREEN));
+        }
+
+        // Mark player as entered (after delay to handle teleport race)
+        scheduleMarkPlayerEntered(session, playerUuid, playerRef);
+    }
+
+    /**
+     * Get the dungeon party config for a world.
+     */
+    public DungeonPartyGameplayConfig getDungeonPartyConfig(World world) {
+        if (world == null) {
+            return null;
+        }
+        GameplayConfig gameplayConfig = world.getGameplayConfig();
+        if (gameplayConfig == null) {
+            return null;
+        }
+        return gameplayConfig.getPluginConfig().get(DungeonPartyGameplayConfig.class);
+    }
+
+    /**
+     * Schedule marking a player as entered with a delay to handle teleport race condition.
+     */
+    private void scheduleMarkPlayerEntered(DungeonSession session, UUID playerUuid, PlayerRef playerRef) {
+        HytaleServer.SCHEDULED_EXECUTOR.schedule(() -> {
+            World targetWorld = session.getDungeonWorld();
+            if (targetWorld == null) {
+                return;
+            }
+            targetWorld.execute(() -> {
+                Ref<EntityStore> ref = playerRef.getReference();
+                if (ref != null && ref.isValid()) {
+                    session.setMemberEnteredDungeon(playerUuid, true);
+                    log(Level.FINE, "Marked " + playerRef.getUsername() + " as entered dungeon");
+                }
+            });
+        }, 2, TimeUnit.SECONDS);
+    }
+
+    /**
+     * Get the session for a player.
+     */
+    public DungeonSession getSession(UUID playerUuid) {
+        return sessionsByPlayer.get(playerUuid);
+    }
+
+    /**
+     * Get the session for a world.
+     */
+    public DungeonSession getSessionByWorld(UUID worldUuid) {
+        return sessionsByWorld.get(worldUuid);
+    }
+
+    /**
+     * Check if a player is in a dungeon session.
+     */
+    public boolean isInDungeon(UUID playerUuid) {
+        return sessionsByPlayer.containsKey(playerUuid);
+    }
+
+    /**
+     * Get all active sessions.
+     */
+    public Collection<DungeonSession> getActiveSessions() {
+        return new HashSet<>(sessionsByWorld.values());
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // RESPAWN HANDLING
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Respawn a player in the dungeon at the spawn point.
+     */
+    public void respawnPlayerInDungeon(UUID playerUuid, DungeonSession session) {
+        PlayerRef playerRef = session.getMemberRef(playerUuid);
+        if (playerRef == null || !DungeonSession.isPlayerRefValid(playerRef)) {
+            log(Level.WARNING, "Cannot respawn - player ref invalid");
+            return;
+        }
+
+        World dungeonWorld = session.getDungeonWorld();
+        if (dungeonWorld == null) {
+            log(Level.WARNING, "Cannot respawn - dungeon world null");
+            return;
+        }
+
+        Vector3d spawnPos = session.getSpawnPosition();
+        Vector3f spawnRot = session.getSpawnRotation();
+
+        if (spawnPos == null) {
+            // Get spawn from world spawn provider
+            var spawnProvider = dungeonWorld.getWorldConfig().getSpawnProvider();
+            if (spawnProvider != null) {
+                Transform spawnTransform = spawnProvider.getSpawnPoint(dungeonWorld, playerUuid);
+                spawnPos = spawnTransform.getPosition();
+                spawnRot = spawnTransform.getRotation();
+            } else {
+                spawnPos = new Vector3d(0, 100, 0);
+                spawnRot = new Vector3f(0, 0, 0);
+            }
+        }
+
+        final Vector3d finalSpawnPos = spawnPos;
+        final Vector3f finalSpawnRot = spawnRot;
+        final PlayerRef finalPlayerRef = playerRef;
+
+        // Schedule respawn
+        HytaleServer.SCHEDULED_EXECUTOR.schedule(() -> {
+            Ref<EntityStore> playerEntityRef = finalPlayerRef.getReference();
+            if (playerEntityRef == null || !playerEntityRef.isValid()) {
+                return;
+            }
+
+            World playerCurrentWorld = playerEntityRef.getStore().getExternalData().getWorld();
+            playerCurrentWorld.execute(() -> {
+                try {
+                    Ref<EntityStore> freshRef = finalPlayerRef.getReference();
+                    if (freshRef == null || !freshRef.isValid()) {
+                        return;
+                    }
+
+                    Store<EntityStore> entityStore = freshRef.getStore();
+                    entityStore.addComponent(freshRef, Teleport.getComponentType(),
+                        Teleport.createForPlayer(dungeonWorld, finalSpawnPos, finalSpawnRot));
+
+                    session.markMemberRespawned(playerUuid);
+                    log(Level.INFO, "Respawned " + finalPlayerRef.getUsername() + " in dungeon");
+                } catch (Exception e) {
+                    log(Level.WARNING, "Error respawning player in dungeon: " + e.getMessage());
+                }
+            });
+        }, 50, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Teleport a player out of the dungeon to their faction spawn or return location.
+     */
+    public void teleportPlayerOut(UUID playerUuid, DungeonSession session) {
+        PlayerRef playerRef = session.getMemberRef(playerUuid);
+        if (playerRef == null || !DungeonSession.isPlayerRefValid(playerRef)) {
+            log(Level.WARNING, "Cannot teleport out - player ref invalid");
+            cleanupPlayerFromSession(playerUuid);
+            return;
+        }
+
+        // Get faction spawn or return location
+        FactionSpawnInfo factionSpawn = getFactionSpawn(playerUuid);
+
+        World targetWorld;
+        Vector3d targetPos;
+        Vector3f targetRot;
+
+        if (factionSpawn != null) {
+            targetWorld = factionSpawn.world;
+            targetPos = factionSpawn.transform.getPosition();
+            targetRot = factionSpawn.transform.getRotation();
+        } else {
+            // Fall back to return transform
+            Transform returnTransform = session.getMemberReturnTransform(playerUuid);
+            targetWorld = Universe.get().getDefaultWorld();
+            if (returnTransform == null) {
+                if (targetWorld != null) {
+                    var spawnProvider = targetWorld.getWorldConfig().getSpawnProvider();
+                    if (spawnProvider != null) {
+                        Transform spawnTransform = spawnProvider.getSpawnPoint(targetWorld, playerUuid);
+                        targetPos = spawnTransform.getPosition();
+                        targetRot = spawnTransform.getRotation();
+                    } else {
+                        targetPos = new Vector3d(0, 100, 0);
+                        targetRot = new Vector3f(0, 0, 0);
+                    }
+                } else {
+                    targetPos = new Vector3d(0, 100, 0);
+                    targetRot = new Vector3f(0, 0, 0);
+                }
+            } else {
+                targetPos = returnTransform.getPosition();
+                targetRot = returnTransform.getRotation();
+            }
+        }
+
+        if (targetWorld == null) {
+            log(Level.WARNING, "Cannot teleport out - no target world");
+            return;
+        }
+
+        final World finalTargetWorld = targetWorld;
+        final Vector3d finalTargetPos = targetPos;
+        final Vector3f finalTargetRot = targetRot;
+        final PlayerRef finalPlayerRef = playerRef;
+
+        // Schedule teleport
+        HytaleServer.SCHEDULED_EXECUTOR.schedule(() -> {
+            Ref<EntityStore> playerEntityRef = finalPlayerRef.getReference();
+            if (playerEntityRef == null || !playerEntityRef.isValid()) {
+                return;
+            }
+
+            World playerCurrentWorld = playerEntityRef.getStore().getExternalData().getWorld();
+            playerCurrentWorld.execute(() -> {
+                try {
+                    Ref<EntityStore> freshRef = finalPlayerRef.getReference();
+                    if (freshRef == null || !freshRef.isValid()) {
+                        return;
+                    }
+
+                    Store<EntityStore> entityStore = freshRef.getStore();
+                    entityStore.addComponent(freshRef, Teleport.getComponentType(),
+                        Teleport.createForPlayer(finalTargetWorld, finalTargetPos, finalTargetRot));
+
+                    log(Level.INFO, "Teleported " + finalPlayerRef.getUsername() + " out of dungeon");
+                } catch (Exception e) {
+                    log(Level.WARNING, "Error teleporting player out: " + e.getMessage());
+                }
+            });
+        }, 50, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Teleport all remaining party members out of the dungeon.
+     */
+    public void teleportAllMembersOut(DungeonSession session) {
+        for (UUID memberUuid : session.getMemberUuids()) {
+            MemberState state = session.getMemberState(memberUuid);
+            if (state != MemberState.DISCONNECTED) {
+                teleportPlayerOut(memberUuid, session);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // DISCONNECT HANDLING
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Handle a player disconnecting while in a dungeon session.
+     */
+    public void handlePlayerDisconnect(UUID playerUuid) {
+        DungeonSession session = sessionsByPlayer.get(playerUuid);
+        if (session == null) {
+            return;
+        }
+
+        // Only process if player actually entered the dungeon
+        if (!session.hasMemberEnteredDungeon(playerUuid)) {
+            log(Level.FINE, "Disconnect event during teleport transition (ignoring)");
+            return;
+        }
+
+        session.markMemberDisconnected(playerUuid);
+        log(Level.INFO, "Player disconnected during dungeon session");
+
+        // Check if all members are gone
+        if (session.isPartyWiped()) {
+            log(Level.INFO, "All party members disconnected/eliminated, ending session");
+            endSession(session);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // SESSION CLEANUP
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * End a dungeon session and clean up.
+     */
+    public void endSession(DungeonSession session) {
+        if (session == null) {
+            return;
+        }
+
+        // Remove all member mappings
+        for (UUID memberUuid : session.getMemberUuids()) {
+            sessionsByPlayer.remove(memberUuid);
+        }
+
+        // Remove world mapping
+        sessionsByWorld.remove(session.getDungeonWorldUuid());
+
+        log(Level.INFO, "Dungeon session ended after " +
+            formatTime(session.getSessionDurationMs()));
+    }
+
+    /**
+     * Clean up a single player from their session.
+     */
+    public void cleanupPlayerFromSession(UUID playerUuid) {
+        DungeonSession session = sessionsByPlayer.remove(playerUuid);
+        if (session != null) {
+            session.markMemberDisconnected(playerUuid);
+
+            // If all members are gone, end the session
+            if (session.isPartyWiped()) {
+                endSession(session);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // FACTION SPAWN LOOKUP
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Get the faction spawn location for a player.
+     * Returns null if HC_Factions is not available or player has no faction.
+     */
+    public FactionSpawnInfo getFactionSpawn(UUID playerUuid) {
+        try {
+            HC_FactionsPlugin factionPlugin = HC_FactionsPlugin.getInstance();
+            if (factionPlugin == null) {
+                return null;
+            }
+
+            // Get player's faction data
+            PlayerData playerData = factionPlugin.getPlayerDataRepository().getPlayerData(playerUuid);
+            if (playerData == null || playerData.getFactionId() == null) {
+                return null;
+            }
+
+            // Get the faction
+            Faction faction = factionPlugin.getFactionManager().getFaction(playerData.getFactionId());
+            if (faction == null) {
+                return null;
+            }
+
+            // Get the faction spawn world
+            World spawnWorld = Universe.get().getWorld(faction.getSpawnWorld());
+            if (spawnWorld == null) {
+                return null;
+            }
+
+            // Build spawn transform
+            double safeY = faction.getSpawnY() + 0.5;
+            Vector3d spawnPos = new Vector3d(faction.getSpawnX(), safeY, faction.getSpawnZ());
+            Vector3f rotation = new Vector3f(0, 0, 0);
+            Transform spawnTransform = new Transform(spawnPos, rotation);
+
+            return new FactionSpawnInfo(spawnWorld, spawnTransform);
+
+        } catch (Exception e) {
+            log(Level.FINE, "Error getting faction spawn: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // UTILITIES
+    // ═══════════════════════════════════════════════════════
+
+    private String formatTime(long ms) {
+        long seconds = ms / 1000;
+        long minutes = seconds / 60;
+        seconds = seconds % 60;
+        return String.format("%d:%02d", minutes, seconds);
+    }
+
+    private void log(Level level, String message) {
+        if (plugin != null) {
+            plugin.getLogger().at(level).log("[DungeonSession] " + message);
+        }
+    }
+}

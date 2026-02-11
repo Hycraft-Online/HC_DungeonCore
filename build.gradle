@@ -1,0 +1,146 @@
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '9.3.0'
+}
+
+version = project.version
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(java_version)
+    withSourcesJar()
+}
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    shadowBundle
+    implementation.extendsFrom(shadowBundle)
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+
+    // Path to HytaleServer.jar
+    // First try local server-files directory (for remote/Docker builds)
+    // Then fall back to hytaleHome from gradle.properties (for local dev with Windows install)
+    def localServerJar = file("${rootProject.projectDir}/../../server-files/Server/HytaleServer.jar")
+    def serverJarPath = localServerJar.exists()
+        ? localServerJar.absolutePath
+        : "$hytaleHome/$patchline/package/game/$game_build/Server/HytaleServer.jar"
+    implementation(files(serverJarPath))
+
+    // HC_Factions plugin dependency (for faction spawn teleportation)
+    def hcFactionsJar = file("${rootProject.projectDir}/../../server-files/mods/HC_Factions-1.0.0.jar")
+    if (hcFactionsJar.exists()) {
+        compileOnly(files(hcFactionsJar.absolutePath))
+    }
+
+    // PartyMod plugin dependency (for party integration)
+    def partyModJar = file("${rootProject.projectDir}/../../server-files/mods/PartyMod-1.2.1-all.jar")
+    if (partyModJar.exists()) {
+        compileOnly(files(partyModJar.absolutePath))
+    }
+
+    // HC_Leveling plugin dependency (for enemy level scaling)
+    def hcLevelingJar = file("${rootProject.projectDir}/../../server-files/mods/HC_Leveling-1.0.0.jar")
+    if (hcLevelingJar.exists()) {
+        compileOnly(files(hcLevelingJar.absolutePath))
+    }
+}
+
+test {
+    useJUnitPlatform()
+}
+
+shadowJar {
+    archiveClassifier.set('')
+    mergeServiceFiles()
+    configurations = [project.configurations.shadowBundle]
+
+    // Include Common/ and Server/ folders in JAR for assets (if needed later)
+    from('Common') {
+        into 'Common'
+    }
+    from('Server') {
+        into 'Server'
+    }
+}
+
+tasks.build {
+    dependsOn("shadowJar")
+}
+
+processResources {
+    var expandProps = [
+        'name'          : project.name,
+        'version'       : project.version,
+        'group'         : project.group,
+        'description'   : mod_description,
+        'server_version': server_version,
+        'entry_point'   : entry_point
+    ]
+
+    filesMatching(['manifest.json']) {
+        expand expandProps
+    }
+    inputs.properties(expandProps)
+}
+
+// Task to deploy the built JAR to server mods folder
+task deploy(dependsOn: 'build') {
+    doLast {
+        // Go up two levels from plugins/HC_DungeonParty to get to repo root, then into server-files/mods
+        def modsDir = file("${rootProject.projectDir}/../../server-files/mods")
+        def jarFile = file("${buildDir}/libs/${project.name}-${project.version}.jar")
+
+        if (!modsDir.exists()) {
+            modsDir.mkdirs()
+        }
+
+        // Copy the JAR (for Java plugin code)
+        copy {
+            from jarFile
+            into modsDir
+        }
+
+        // Create data folder at mods/HC_DungeonParty/ (where the plugin expects data)
+        def dataDir = file("${rootProject.projectDir}/../../server-files/mods/HC_DungeonParty")
+        if (!dataDir.exists()) {
+            dataDir.mkdirs()
+        }
+
+        // Extract assets if present (Server/, Common/)
+        def assetPackDir = file("${rootProject.projectDir}/../../server-files/mods/${project.name}-${project.version}")
+        if (assetPackDir.exists()) {
+            delete assetPackDir
+        }
+        assetPackDir.mkdirs()
+
+        // Copy manifest.json
+        copy {
+            from zipTree(jarFile)
+            include 'manifest.json'
+            into assetPackDir
+        }
+
+        // Copy Server/ assets if present
+        copy {
+            from zipTree(jarFile)
+            include 'Server/**'
+            into assetPackDir
+        }
+
+        // Copy Common/ assets if present
+        copy {
+            from zipTree(jarFile)
+            include 'Common/**'
+            into assetPackDir
+        }
+
+        println "Deployed ${jarFile.name} to ${modsDir}"
+        println "Data files deployed to ${dataDir}"
+    }
+}
