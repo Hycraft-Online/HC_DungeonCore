@@ -21,6 +21,7 @@ import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
+import com.hypixel.hytale.builtin.instances.InstancesPlugin;
 
 import java.awt.Color;
 import java.util.*;
@@ -425,6 +426,12 @@ public class DungeonSessionManager {
     // SESSION CLEANUP
     // ═══════════════════════════════════════════════════════
 
+    /** Delay before checking if the built-in RemovalSystem actually removed the world */
+    private static final long REMOVAL_VERIFY_DELAY_S = 60;
+
+    /** Maximum retry attempts for force-removing a leaked world */
+    private static final int MAX_REMOVAL_RETRIES = 3;
+
     /**
      * End a dungeon session and clean up.
      */
@@ -441,8 +448,68 @@ public class DungeonSessionManager {
         // Remove world mapping
         sessionsByWorld.remove(session.getDungeonWorldUuid());
 
+        // Mark the dungeon instance for removal
+        World dungeonWorld = session.getDungeonWorld();
+        if (dungeonWorld != null) {
+            String worldName = dungeonWorld.getName();
+            try {
+                InstancesPlugin.safeRemoveInstance(dungeonWorld);
+                log(Level.INFO, "Marked dungeon world " + worldName + " for safe removal");
+            } catch (Exception e) {
+                log(Level.WARNING, "Error marking dungeon instance for removal: " + e.getMessage());
+            }
+
+            // Safety net: the built-in RemovalSystem silently fails ~50% of the time
+            // (sets isRemoving=true then removeWorld fails with no retry).
+            // Verify the world is actually gone after a delay and force-remove if not.
+            scheduleWorldRemovalVerification(worldName, 1);
+        }
+
         log(Level.INFO, "Dungeon session ended after " +
             formatTime(session.getSessionDurationMs()));
+    }
+
+    /**
+     * Verify a world was actually removed. If it still exists, force-remove it.
+     * The built-in RemovalSystem has a bug where it sets isRemoving=true before
+     * calling removeWorld() via CompletableFuture with no error handler — if
+     * removeWorld() throws, the world is permanently leaked.
+     */
+    private void scheduleWorldRemovalVerification(String worldName, int attempt) {
+        HytaleServer.SCHEDULED_EXECUTOR.schedule(() -> {
+            try {
+                World world = Universe.get().getWorld(worldName);
+                if (world == null) {
+                    log(Level.FINE, "World " + worldName + " confirmed removed");
+                    return;
+                }
+
+                if (world.getPlayerCount() > 0) {
+                    log(Level.INFO, "World " + worldName + " still has players, rescheduling removal check");
+                    scheduleWorldRemovalVerification(worldName, attempt);
+                    return;
+                }
+
+                log(Level.WARNING, "World " + worldName + " still exists after " +
+                    (attempt * REMOVAL_VERIFY_DELAY_S) + "s — forcing removal (attempt " +
+                    attempt + "/" + MAX_REMOVAL_RETRIES + ")");
+
+                try {
+                    Universe.get().removeWorld(worldName);
+                    log(Level.INFO, "Force-removed leaked dungeon world: " + worldName);
+                } catch (Exception ex) {
+                    log(Level.WARNING, "Force removal of " + worldName + " failed: " + ex.getMessage());
+                    if (attempt < MAX_REMOVAL_RETRIES) {
+                        scheduleWorldRemovalVerification(worldName, attempt + 1);
+                    } else {
+                        log(Level.SEVERE, "LEAKED WORLD: " + worldName +
+                            " could not be removed after " + MAX_REMOVAL_RETRIES + " attempts");
+                    }
+                }
+            } catch (Exception e) {
+                log(Level.WARNING, "Error verifying world removal for " + worldName + ": " + e.getMessage());
+            }
+        }, REMOVAL_VERIFY_DELAY_S, TimeUnit.SECONDS);
     }
 
     /**
