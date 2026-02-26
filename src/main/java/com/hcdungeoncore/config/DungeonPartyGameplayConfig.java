@@ -1,4 +1,4 @@
-package com.hcdungeonparty.config;
+package com.hcdungeoncore.config;
 
 import com.hypixel.hytale.codec.Codec;
 import com.hypixel.hytale.codec.KeyedCodec;
@@ -105,7 +105,7 @@ public class DungeonPartyGameplayConfig {
 
     /**
      * Number of lives each player contributes to the shared pool.
-     * Total party lives = livesPerPlayer × partySize
+     * Total party lives = livesPerPlayer x partySize
      */
     public int getLivesPerPlayer() {
         return livesPerPlayer;

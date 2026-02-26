@@ -1,6 +1,6 @@
-package com.hcdungeonparty.integration;
+package com.hcdungeoncore.integration;
 
-import com.hcdungeonparty.HC_DungeonPartyPlugin;
+import com.hcdungeoncore.HC_DungeonCorePlugin;
 
 import java.lang.reflect.Method;
 import java.util.Collections;
@@ -11,7 +11,7 @@ import java.util.logging.Level;
 
 /**
  * Integration with PartyMod plugin using pure reflection.
- * This allows HC_DungeonParty to work with or without PartyMod installed.
+ * This allows HC_DungeonCore to work with or without PartyMod installed.
  * All PartyMod interactions are done via reflection to avoid compile-time dependencies.
  */
 public class PartyModIntegration {
@@ -47,7 +47,7 @@ public class PartyModIntegration {
      * Initialize PartyMod integration.
      * Should only be called if isPartyModAvailable() returns true.
      */
-    public static void initialize(HC_DungeonPartyPlugin plugin) {
+    public static void initialize(HC_DungeonCorePlugin plugin) {
         if (initialized) {
             return;
         }

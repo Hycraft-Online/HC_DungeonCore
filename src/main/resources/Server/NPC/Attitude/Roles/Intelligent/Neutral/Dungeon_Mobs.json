@@ -1,0 +1,6 @@
+{
+  "Groups": {
+    "Friendly": ["Dungeon_Mobs"],
+    "Hostile": ["Player"]
+  }
+}

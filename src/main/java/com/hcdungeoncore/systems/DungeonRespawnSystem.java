@@ -1,8 +1,8 @@
-package com.hcdungeonparty.systems;
+package com.hcdungeoncore.systems;
 
-import com.hcdungeonparty.HC_DungeonPartyPlugin;
-import com.hcdungeonparty.managers.DungeonSessionManager;
-import com.hcdungeonparty.models.DungeonSession;
+import com.hcdungeoncore.HC_DungeonCorePlugin;
+import com.hcdungeoncore.managers.DungeonSessionManager;
+import com.hcdungeoncore.models.DungeonSession;
 import com.hypixel.hytale.component.CommandBuffer;
 import com.hypixel.hytale.component.ComponentType;
 import com.hypixel.hytale.component.Ref;
@@ -43,9 +43,9 @@ public class DungeonRespawnSystem extends RefChangeSystem<EntityStore, DeathComp
         PlayerRef.getComponentType()
     );
 
-    private HC_DungeonPartyPlugin plugin;
+    private HC_DungeonCorePlugin plugin;
 
-    public void initialize(HC_DungeonPartyPlugin plugin) {
+    public void initialize(HC_DungeonCorePlugin plugin) {
         this.plugin = plugin;
     }
 

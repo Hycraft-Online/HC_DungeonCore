@@ -1,12 +1,12 @@
-package com.hcdungeonparty;
+package com.hcdungeoncore;
 
-import com.hcdungeonparty.config.DungeonPartyGameplayConfig;
-import com.hcdungeonparty.integration.HC_LevelingIntegration;
-import com.hcdungeonparty.integration.PartyModIntegration;
-import com.hcdungeonparty.managers.DungeonSessionManager;
-import com.hcdungeonparty.models.DungeonSession;
-import com.hcdungeonparty.systems.DungeonNPCScalingSystem;
-import com.hcdungeonparty.systems.DungeonRespawnSystem;
+import com.hcdungeoncore.config.DungeonPartyGameplayConfig;
+import com.hcdungeoncore.integration.HC_LevelingIntegration;
+import com.hcdungeoncore.integration.PartyModIntegration;
+import com.hcdungeoncore.managers.DungeonSessionManager;
+import com.hcdungeoncore.models.DungeonSession;
+import com.hcdungeoncore.systems.DungeonNPCScalingSystem;
+import com.hcdungeoncore.systems.DungeonRespawnSystem;
 import com.hypixel.hytale.component.Holder;
 import com.hypixel.hytale.math.vector.Transform;
 import com.hypixel.hytale.math.vector.Vector3d;
@@ -19,12 +19,15 @@ import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
+import com.hypixel.hytale.builtin.instances.config.InstanceEntityConfig;
+import com.hypixel.hytale.builtin.instances.config.WorldReturnPoint;
 import org.checkerframework.checker.nullness.compatqual.NonNullDecl;
 
+import java.util.UUID;
 import java.util.logging.Level;
 
 /**
- * HC_DungeonParty - Party-based dungeon gameplay with shared lives and enemy scaling.
+ * HC_DungeonCore - Party-based dungeon gameplay with shared lives and enemy scaling.
  *
  * This plugin provides reusable party-based session management for dungeons.
  * When enabled via GameplayConfig, players who enter a dungeon share a lives pool.
@@ -49,22 +52,22 @@ import java.util.logging.Level;
  * }
  * </pre>
  */
-public class HC_DungeonPartyPlugin extends JavaPlugin {
+public class HC_DungeonCorePlugin extends JavaPlugin {
 
     public static final String VERSION = "1.0.0";
 
-    private static HC_DungeonPartyPlugin instance;
+    private static HC_DungeonCorePlugin instance;
 
     // ECS Systems
     private DungeonRespawnSystem dungeonRespawnSystem;
     private DungeonNPCScalingSystem dungeonNPCScalingSystem;
 
-    public HC_DungeonPartyPlugin(@NonNullDecl JavaPluginInit init) {
+    public HC_DungeonCorePlugin(@NonNullDecl JavaPluginInit init) {
         super(init);
         instance = this;
     }
 
-    public static HC_DungeonPartyPlugin getInstance() {
+    public static HC_DungeonCorePlugin getInstance() {
         return instance;
     }
 
@@ -73,7 +76,7 @@ public class HC_DungeonPartyPlugin extends JavaPlugin {
         super.setup();
 
         this.getLogger().at(Level.INFO).log("=================================");
-        this.getLogger().at(Level.INFO).log("   HC DUNGEON PARTY " + VERSION);
+        this.getLogger().at(Level.INFO).log("   HC DUNGEON CORE " + VERSION);
         this.getLogger().at(Level.INFO).log("=================================");
 
         // ═══════════════════════════════════════════════════════
@@ -148,7 +151,7 @@ public class HC_DungeonPartyPlugin extends JavaPlugin {
         // STARTUP COMPLETE
         // ═══════════════════════════════════════════════════════
         this.getLogger().at(Level.INFO).log("=================================");
-        this.getLogger().at(Level.INFO).log("HC_DungeonParty enabled!");
+        this.getLogger().at(Level.INFO).log("HC_DungeonCore enabled!");
         this.getLogger().at(Level.INFO).log("Configure via GameplayConfig:");
         this.getLogger().at(Level.INFO).log("  Plugin.DungeonParty.Enabled: true");
         this.getLogger().at(Level.INFO).log("  Plugin.DungeonParty.EnemyMinLevel: 10");
@@ -187,11 +190,31 @@ public class HC_DungeonPartyPlugin extends JavaPlugin {
             HC_LevelingIntegration.registerExemptWorld(world.getName());
         }
 
-        // Get player's current transform as return location
-        // Note: This is their position BEFORE entering the new world
-        Transform returnTransform = DungeonSession.getPlayerTransformSafely(playerRef);
+        // Read canonical return point from InstanceEntityConfig (set by InstancesPlugin's handler
+        // which fires first). This is more reliable than playerRef.getTransform() which can
+        // return the dungeon position on reconnect instead of the overworld position.
+        Transform returnTransform = null;
+        UUID returnWorldUuid = null;
+
+        try {
+            InstanceEntityConfig entityConfig = holder.getComponent(InstanceEntityConfig.getComponentType());
+            if (entityConfig != null) {
+                WorldReturnPoint returnPoint = entityConfig.getReturnPoint();
+                if (returnPoint != null) {
+                    returnTransform = returnPoint.getReturnPoint();
+                    returnWorldUuid = returnPoint.getWorld();
+                }
+            }
+        } catch (Exception e) {
+            this.getLogger().at(Level.WARNING).log("Could not read InstanceEntityConfig return point: " + e.getMessage());
+        }
+
+        // Fall back to playerRef.getTransform() if InstanceEntityConfig unavailable
         if (returnTransform == null) {
-            // Fallback to world spawn if we can't get current position
+            returnTransform = DungeonSession.getPlayerTransformSafely(playerRef);
+        }
+        if (returnTransform == null) {
+            // Last resort: world spawn
             var spawnProvider = world.getWorldConfig().getSpawnProvider();
             if (spawnProvider != null) {
                 returnTransform = spawnProvider.getSpawnPoint(world, playerRef.getUuid());
@@ -204,7 +227,7 @@ public class HC_DungeonPartyPlugin extends JavaPlugin {
         }
 
         // Handle the player entering the dungeon world
-        manager.handlePlayerEnterWorld(playerRef, world, returnTransform);
+        manager.handlePlayerEnterWorld(playerRef, world, returnTransform, returnWorldUuid);
     }
 
     @Override
@@ -219,6 +242,6 @@ public class HC_DungeonPartyPlugin extends JavaPlugin {
             }
         }
 
-        this.getLogger().at(Level.INFO).log("HC_DungeonParty disabled");
+        this.getLogger().at(Level.INFO).log("HC_DungeonCore disabled");
     }
 }

@@ -92,7 +92,7 @@ processResources {
 // Task to deploy the built JAR to server mods folder
 task deploy(dependsOn: 'build') {
     doLast {
-        // Go up two levels from plugins/HC_DungeonParty to get to repo root, then into server-files/mods
+        // Go up two levels from plugins/HC_DungeonCore to get to repo root, then into server-files/mods
         def modsDir = file("${rootProject.projectDir}/../../server-files/mods")
         def jarFile = file("${buildDir}/libs/${project.name}-${project.version}.jar")
 
@@ -106,8 +106,8 @@ task deploy(dependsOn: 'build') {
             into modsDir
         }
 
-        // Create data folder at mods/HC_DungeonParty/ (where the plugin expects data)
-        def dataDir = file("${rootProject.projectDir}/../../server-files/mods/HC_DungeonParty")
+        // Create data folder at mods/HC_DungeonCore/ (where the plugin expects data)
+        def dataDir = file("${rootProject.projectDir}/../../server-files/mods/HC_DungeonCore")
         if (!dataDir.exists()) {
             dataDir.mkdirs()
         }

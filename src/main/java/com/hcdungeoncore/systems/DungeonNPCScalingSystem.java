@@ -1,10 +1,10 @@
-package com.hcdungeonparty.systems;
+package com.hcdungeoncore.systems;
 
-import com.hcdungeonparty.HC_DungeonPartyPlugin;
-import com.hcdungeonparty.config.DungeonPartyGameplayConfig;
-import com.hcdungeonparty.integration.HC_LevelingIntegration;
-import com.hcdungeonparty.managers.DungeonSessionManager;
-import com.hcdungeonparty.models.DungeonSession;
+import com.hcdungeoncore.HC_DungeonCorePlugin;
+import com.hcdungeoncore.config.DungeonPartyGameplayConfig;
+import com.hcdungeoncore.integration.HC_LevelingIntegration;
+import com.hcdungeoncore.managers.DungeonSessionManager;
+import com.hcdungeoncore.models.DungeonSession;
 import com.hypixel.hytale.component.AddReason;
 import com.hypixel.hytale.component.Archetype;
 import com.hypixel.hytale.component.ComponentType;
@@ -49,8 +49,8 @@ import java.util.logging.Level;
  */
 public class DungeonNPCScalingSystem extends HolderSystem<EntityStore> {
 
-    private static final String DUNGEON_LEVEL_MODIFIER = "HC_DungeonParty_Level";
-    private static final String DUNGEON_DIFFICULTY_MODIFIER = "HC_DungeonParty_Difficulty";
+    private static final String DUNGEON_LEVEL_MODIFIER = "HC_DungeonCore_Level";
+    private static final String DUNGEON_DIFFICULTY_MODIFIER = "HC_DungeonCore_Difficulty";
     private static final String HEALTH_STAT_ID = "Health";
 
     // Component types
@@ -71,12 +71,12 @@ public class DungeonNPCScalingSystem extends HolderSystem<EntityStore> {
         new SystemDependency<>(Order.AFTER, BalancingInitialisationSystem.class)
     );
 
-    private HC_DungeonPartyPlugin plugin;
+    private HC_DungeonCorePlugin plugin;
 
     /**
      * Initialize with plugin reference.
      */
-    public void initialize(HC_DungeonPartyPlugin plugin) {
+    public void initialize(HC_DungeonCorePlugin plugin) {
         this.plugin = plugin;
     }
 

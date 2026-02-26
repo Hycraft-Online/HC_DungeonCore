@@ -1,4 +1,4 @@
-package com.hcdungeonparty.models;
+package com.hcdungeoncore.models;
 
 /**
  * State of an individual party member within a dungeon session.

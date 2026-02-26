@@ -1,4 +1,4 @@
-package com.hcdungeonparty.models;
+package com.hcdungeoncore.models;
 
 import com.hypixel.hytale.math.vector.Transform;
 import com.hypixel.hytale.math.vector.Vector3d;
@@ -31,6 +31,7 @@ public class DungeonSession {
     private final Map<UUID, PlayerRef> memberRefs = new HashMap<>();
     private final Map<UUID, MemberState> memberStates = new HashMap<>();
     private final Map<UUID, Transform> memberReturnTransforms = new HashMap<>();
+    private final Map<UUID, UUID> memberReturnWorldUuids = new HashMap<>();
 
     // Shared party lives pool
     private int partyLives;
@@ -115,7 +116,7 @@ public class DungeonSession {
      * Register a party member for this dungeon session.
      * Should be called for each member before entering the dungeon.
      */
-    public void registerMember(UUID memberUuid, PlayerRef memberRef, Transform memberReturnTransform) {
+    public void registerMember(UUID memberUuid, PlayerRef memberRef, Transform memberReturnTransform, UUID returnWorldUuid) {
         memberUuids.add(memberUuid);
         memberRefs.put(memberUuid, memberRef);
         memberStates.put(memberUuid, MemberState.ALIVE);
@@ -125,6 +126,10 @@ public class DungeonSession {
                 new Vector3d(memberReturnTransform.getPosition()),
                 new Vector3f(memberReturnTransform.getRotation())
             ));
+        }
+        // Store the return world UUID
+        if (returnWorldUuid != null) {
+            memberReturnWorldUuids.put(memberUuid, returnWorldUuid);
         }
         // Recalculate shared party lives pool based on party size
         partyLives = memberUuids.size() * livesPerPlayer;
@@ -269,6 +274,13 @@ public class DungeonSession {
      */
     public Transform getMemberReturnTransform(UUID memberUuid) {
         return memberReturnTransforms.get(memberUuid);
+    }
+
+    /**
+     * Get the return world UUID for a specific member.
+     */
+    public UUID getMemberReturnWorldUuid(UUID memberUuid) {
+        return memberReturnWorldUuids.get(memberUuid);
     }
 
     /**

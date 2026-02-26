@@ -1,6 +1,6 @@
-package com.hcdungeonparty.integration;
+package com.hcdungeoncore.integration;
 
-import com.hcdungeonparty.HC_DungeonPartyPlugin;
+import com.hcdungeoncore.HC_DungeonCorePlugin;
 import com.hcleveling.api.HC_LevelingAPI;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
@@ -38,7 +38,7 @@ public class HC_LevelingIntegration {
     /**
      * Initialize HC_Leveling integration.
      */
-    public static void initialize(HC_DungeonPartyPlugin plugin) {
+    public static void initialize(HC_DungeonCorePlugin plugin) {
         if (initialized) {
             return;
         }
