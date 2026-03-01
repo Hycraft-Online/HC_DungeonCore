@@ -5,6 +5,7 @@ import com.hcdungeoncore.integration.HC_LevelingIntegration;
 import com.hcdungeoncore.integration.PartyModIntegration;
 import com.hcdungeoncore.managers.DungeonSessionManager;
 import com.hcdungeoncore.models.DungeonSession;
+import com.hcdungeoncore.systems.DungeonEntityDensitySystem;
 import com.hcdungeoncore.systems.DungeonNPCScalingSystem;
 import com.hcdungeoncore.systems.DungeonRespawnSystem;
 import com.hypixel.hytale.component.Holder;
@@ -61,6 +62,7 @@ public class HC_DungeonCorePlugin extends JavaPlugin {
     // ECS Systems
     private DungeonRespawnSystem dungeonRespawnSystem;
     private DungeonNPCScalingSystem dungeonNPCScalingSystem;
+    private DungeonEntityDensitySystem dungeonEntityDensitySystem;
 
     public HC_DungeonCorePlugin(@NonNullDecl JavaPluginInit init) {
         super(init);
@@ -128,6 +130,12 @@ public class HC_DungeonCorePlugin extends JavaPlugin {
             this.getEntityStoreRegistry().registerSystem(dungeonNPCScalingSystem);
             this.getLogger().at(Level.INFO).log("Registered DungeonNPCScalingSystem");
         }
+
+        // Entity density system - prevents crashes from too many NPCs clustering in doorways
+        dungeonEntityDensitySystem = new DungeonEntityDensitySystem();
+        dungeonEntityDensitySystem.initialize(this);
+        this.getEntityStoreRegistry().registerSystem(dungeonEntityDensitySystem);
+        this.getLogger().at(Level.INFO).log("Registered DungeonEntityDensitySystem");
 
         // ═══════════════════════════════════════════════════════
         // EVENT HANDLERS

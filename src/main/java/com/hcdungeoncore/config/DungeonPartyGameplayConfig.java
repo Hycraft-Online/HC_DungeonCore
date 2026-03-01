@@ -24,7 +24,10 @@ import java.util.Set;
  *     "ScaleToPartyLevel": true,
  *     "BossRoleNames": ["Shiva", "Azaroth"],
  *     "BossLevel": 25,
- *     "DifficultyMultiplier": 1.0
+ *     "DifficultyMultiplier": 1.0,
+ *     "MaxNPCsPerCluster": 8,
+ *     "ClusterRadiusBlocks": 4.0,
+ *     "DensityCheckIntervalSeconds": 2.0
  *   }
  * }
  * </pre>
@@ -32,6 +35,9 @@ import java.util.Set;
 public class DungeonPartyGameplayConfig {
 
     public static final BuilderCodec<DungeonPartyGameplayConfig> CODEC = ((BuilderCodec.Builder<DungeonPartyGameplayConfig>)
+        ((BuilderCodec.Builder<DungeonPartyGameplayConfig>)
+        ((BuilderCodec.Builder<DungeonPartyGameplayConfig>)
+        ((BuilderCodec.Builder<DungeonPartyGameplayConfig>)
         ((BuilderCodec.Builder<DungeonPartyGameplayConfig>)
         ((BuilderCodec.Builder<DungeonPartyGameplayConfig>)
         ((BuilderCodec.Builder<DungeonPartyGameplayConfig>)
@@ -72,6 +78,15 @@ public class DungeonPartyGameplayConfig {
             .append(new KeyedCodec<>("DifficultyMultiplier", Codec.FLOAT), (config, val) -> {
                 config.difficultyMultiplier = val;
             }, config -> config.difficultyMultiplier).add())
+            .append(new KeyedCodec<>("MaxNPCsPerCluster", Codec.INTEGER), (config, val) -> {
+                config.maxNPCsPerCluster = val;
+            }, config -> config.maxNPCsPerCluster).add())
+            .append(new KeyedCodec<>("ClusterRadiusBlocks", Codec.FLOAT), (config, val) -> {
+                config.clusterRadiusBlocks = val;
+            }, config -> config.clusterRadiusBlocks).add())
+            .append(new KeyedCodec<>("DensityCheckIntervalSeconds", Codec.FLOAT), (config, val) -> {
+                config.densityCheckIntervalSeconds = val;
+            }, config -> config.densityCheckIntervalSeconds).add())
         .build();
 
     // Default values - party/lives settings
@@ -89,6 +104,11 @@ public class DungeonPartyGameplayConfig {
     private String[] bossRoleNames = new String[0];
     private int bossLevel = 0; // 0 means use enemy max level
     private float difficultyMultiplier = 1.0f;
+
+    // Entity density settings (prevents crashes from too many NPCs in doorways)
+    private int maxNPCsPerCluster = 8;       // Max NPCs allowed within cluster radius
+    private float clusterRadiusBlocks = 4.0f; // Radius in blocks to check for clustering
+    private float densityCheckIntervalSeconds = 2.0f; // How often to run density check
 
     // Cached boss name set for fast lookup
     private transient Set<String> bossRoleNameSet = null;
@@ -211,5 +231,32 @@ public class DungeonPartyGameplayConfig {
      */
     public boolean hasBossConfig() {
         return bossRoleNames != null && bossRoleNames.length > 0;
+    }
+
+    /**
+     * Maximum number of NPCs allowed within the cluster radius before excess
+     * NPCs are despawned. Prevents crashes from too many entities in doorways.
+     * Default: 8
+     */
+    public int getMaxNPCsPerCluster() {
+        return maxNPCsPerCluster;
+    }
+
+    /**
+     * Radius in blocks to check for NPC clustering. NPCs within this radius
+     * of each other are considered part of the same cluster.
+     * Default: 4.0 blocks (typical doorway width)
+     */
+    public float getClusterRadiusBlocks() {
+        return clusterRadiusBlocks;
+    }
+
+    /**
+     * How often (in seconds) to run the entity density check.
+     * Lower values catch clusters faster but use more CPU.
+     * Default: 2.0 seconds
+     */
+    public float getDensityCheckIntervalSeconds() {
+        return densityCheckIntervalSeconds;
     }
 }
