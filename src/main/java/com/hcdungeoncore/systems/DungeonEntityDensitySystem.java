@@ -12,7 +12,11 @@ import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.component.query.Query;
 import com.hypixel.hytale.component.system.tick.TickingSystem;
 import com.hypixel.hytale.math.vector.Vector3d;
+import com.hypixel.hytale.server.core.entity.InteractionManager;
+import com.hypixel.hytale.server.core.entity.entities.Player;
 import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
+import com.hypixel.hytale.server.core.modules.interaction.InteractionModule;
+import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.server.npc.entities.NPCEntity;
@@ -55,6 +59,10 @@ public class DungeonEntityDensitySystem extends TickingSystem<EntityStore> {
 
     // Query for NPCs with transforms (all NPCs that have a position)
     private final Query<EntityStore> query = Query.and(npcType, transformType);
+
+    // Query for players (to clear their interaction state before bulk NPC removal)
+    private final ComponentType<EntityStore, Player> playerType = Player.getComponentType();
+    private final Query<EntityStore> playerQuery = Query.and(playerType);
 
     private HC_DungeonCorePlugin plugin;
 
@@ -203,6 +211,21 @@ public class DungeonEntityDensitySystem extends TickingSystem<EntityStore> {
         }
 
         if (totalRemoved > 0) {
+            // Clear interaction state for all players in this world before removing NPCs.
+            // Without this, players interacting with an NPC that gets despawned here will
+            // trigger ArrayIndexOutOfBoundsException in InteractionManager.
+            store.forEachEntityParallel(playerQuery, (index, archetypeChunk, commandBuffer) -> {
+                Ref<EntityStore> ref = archetypeChunk.getReferenceTo(index);
+                if (ref == null || !ref.isValid()) {
+                    return;
+                }
+                InteractionManager im = store.getComponent(ref,
+                    InteractionModule.get().getInteractionManagerComponent());
+                if (im != null) {
+                    im.clear();
+                }
+            });
+
             // Perform removals via forEachEntityParallel + commandBuffer
             final boolean[] finalMarked = markedForRemoval;
             final List<NPCRecord> finalNpcs = npcs;

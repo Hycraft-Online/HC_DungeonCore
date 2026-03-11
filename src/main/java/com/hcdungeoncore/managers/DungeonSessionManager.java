@@ -16,7 +16,9 @@ import com.hypixel.hytale.math.vector.Vector3f;
 import com.hypixel.hytale.server.core.HytaleServer;
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.asset.type.gameplay.GameplayConfig;
+import com.hypixel.hytale.server.core.entity.InteractionManager;
 import com.hypixel.hytale.server.core.modules.entity.teleport.Teleport;
+import com.hypixel.hytale.server.core.modules.interaction.InteractionModule;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.Universe;
 import com.hypixel.hytale.server.core.universe.world.World;
@@ -305,6 +307,14 @@ public class DungeonSessionManager {
                     }
 
                     Store<EntityStore> entityStore = freshRef.getStore();
+
+                    // Clear interaction state before teleport to prevent ArrayIndexOutOfBoundsException
+                    InteractionManager interactionManager = entityStore.getComponent(freshRef,
+                        InteractionModule.get().getInteractionManagerComponent());
+                    if (interactionManager != null) {
+                        interactionManager.clear();
+                    }
+
                     entityStore.addComponent(freshRef, Teleport.getComponentType(),
                         Teleport.createForPlayer(dungeonWorld, finalSpawnPos, finalSpawnRot));
 
@@ -402,6 +412,14 @@ public class DungeonSessionManager {
                     }
 
                     Store<EntityStore> entityStore = freshRef.getStore();
+
+                    // Clear interaction state before teleport to prevent ArrayIndexOutOfBoundsException
+                    InteractionManager interactionManager = entityStore.getComponent(freshRef,
+                        InteractionModule.get().getInteractionManagerComponent());
+                    if (interactionManager != null) {
+                        interactionManager.clear();
+                    }
+
                     entityStore.addComponent(freshRef, Teleport.getComponentType(),
                         Teleport.createForPlayer(finalTargetWorld, finalTargetPos, finalTargetRot));
 
