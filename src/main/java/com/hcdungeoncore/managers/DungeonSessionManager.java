@@ -21,6 +21,8 @@ import com.hypixel.hytale.server.core.modules.entity.teleport.Teleport;
 import com.hypixel.hytale.server.core.modules.interaction.InteractionModule;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.Universe;
+import com.hypixel.hytale.protocol.BlockMaterial;
+import com.hypixel.hytale.server.core.asset.type.blocktype.config.BlockType;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hypixel.hytale.builtin.instances.InstancesPlugin;
@@ -37,7 +39,7 @@ import java.util.logging.Level;
  */
 public class DungeonSessionManager {
 
-    private static DungeonSessionManager instance;
+    private static volatile DungeonSessionManager instance;
 
     private HC_DungeonCorePlugin plugin;
 
@@ -117,8 +119,11 @@ public class DungeonSessionManager {
             // Check if there's already a session for this world
             existingSession = sessionsByWorld.get(worldUuid);
             if (existingSession != null) {
-                // Join existing session
-                if (!existingSession.isMember(playerUuid)) {
+                // Block re-entry for eliminated players (HYC-200)
+                if (existingSession.isMemberEliminated(playerUuid)) {
+                    // Don't register — will handle rejection after lock
+                } else if (!existingSession.isMember(playerUuid)) {
+                    // Join existing session
                     existingSession.registerMember(playerUuid, playerRef, returnTransform, returnWorldUuid);
                     sessionsByPlayer.put(playerUuid, existingSession);
                     joinedExisting = true;
@@ -159,6 +164,14 @@ public class DungeonSessionManager {
 
         // Handle results outside the lock (messaging, scheduling)
         if (existingSession != null) {
+            // Check if player was rejected due to elimination (HYC-200)
+            if (existingSession.isMemberEliminated(playerUuid) && !joinedExisting) {
+                log(Level.INFO, "Blocked eliminated player " + playerRef.getUsername() + " from re-entering dungeon");
+                playerRef.sendMessage(Message.raw("You have been eliminated from this dungeon and cannot re-enter.").color(Color.RED));
+                // Teleport back to return location
+                teleportPlayerOut(playerUuid, existingSession);
+                return;
+            }
             if (joinedExisting) {
                 log(Level.INFO, "Player " + playerRef.getUsername() + " joined existing dungeon session");
             }
@@ -282,6 +295,12 @@ public class DungeonSessionManager {
                 spawnPos = new Vector3d(0, 100, 0);
                 spawnRot = new Vector3f(0, 0, 0);
             }
+        }
+
+        // Validate spawn position — find safe Y to prevent suffocating inside blocks (HYC-239)
+        int safeY = findValidSpawnY(dungeonWorld, (int) spawnPos.x, (int) spawnPos.y, (int) spawnPos.z);
+        if (safeY >= 0) {
+            spawnPos = new Vector3d(spawnPos.x, safeY, spawnPos.z);
         }
 
         final Vector3d finalSpawnPos = spawnPos;
@@ -441,6 +460,33 @@ public class DungeonSessionManager {
                 teleportPlayerOut(memberUuid, session);
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // WORLD REMOVAL HANDLING (HYC-248)
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * Handle a dungeon world being removed. Cleans up the session for that world
+     * to prevent stale entries from accumulating in sessionsByWorld.
+     */
+    public void handleWorldRemoved(World world) {
+        if (world == null) {
+            return;
+        }
+
+        UUID worldUuid = world.getWorldConfig().getUuid();
+        DungeonSession session;
+
+        synchronized (sessionLock) {
+            session = sessionsByWorld.get(worldUuid);
+            if (session == null) {
+                return; // Not a dungeon world we're tracking
+            }
+        }
+
+        log(Level.INFO, "Dungeon world removed: " + world.getName() + " — cleaning up session");
+        endSession(session);
     }
 
     // ═══════════════════════════════════════════════════════
@@ -653,6 +699,25 @@ public class DungeonSessionManager {
         long minutes = seconds / 60;
         seconds = seconds % 60;
         return String.format("%d:%02d", minutes, seconds);
+    }
+
+    /**
+     * Find a valid spawn Y by searching up from referenceY for: solid below, empty at feet and head.
+     * Returns -1 if no valid position found within 10 blocks above referenceY.
+     */
+    private int findValidSpawnY(World world, int x, int referenceY, int z) {
+        for (int y = referenceY; y <= referenceY + 10; y++) {
+            BlockType ground = world.getBlockType(x, y - 1, z);
+            BlockType feet = world.getBlockType(x, y, z);
+            BlockType head = world.getBlockType(x, y + 1, z);
+
+            if (ground != null && ground.getMaterial() == BlockMaterial.Solid &&
+                (feet == null || feet.getMaterial() == BlockMaterial.Empty) &&
+                (head == null || head.getMaterial() == BlockMaterial.Empty)) {
+                return y;
+            }
+        }
+        return -1;
     }
 
     private void log(Level level, String message) {

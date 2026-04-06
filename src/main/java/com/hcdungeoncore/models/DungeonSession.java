@@ -9,6 +9,7 @@ import com.hypixel.hytale.server.core.universe.world.World;
 
 import java.awt.Color;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Represents an active dungeon session for one or more players (party).
@@ -26,12 +27,12 @@ public class DungeonSession {
     // PartyMod party ID (null for solo sessions)
     private final String partyModPartyId;
 
-    // All party members
-    private final Set<UUID> memberUuids = new HashSet<>();
-    private final Map<UUID, PlayerRef> memberRefs = new HashMap<>();
-    private final Map<UUID, MemberState> memberStates = new HashMap<>();
-    private final Map<UUID, Transform> memberReturnTransforms = new HashMap<>();
-    private final Map<UUID, UUID> memberReturnWorldUuids = new HashMap<>();
+    // All party members (thread-safe: accessed from event handlers, world thread, scheduled executors)
+    private final Set<UUID> memberUuids = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, PlayerRef> memberRefs = new ConcurrentHashMap<>();
+    private final Map<UUID, MemberState> memberStates = new ConcurrentHashMap<>();
+    private final Map<UUID, Transform> memberReturnTransforms = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> memberReturnWorldUuids = new ConcurrentHashMap<>();
 
     // Shared party lives pool
     private int partyLives;
@@ -50,7 +51,7 @@ public class DungeonSession {
     private final boolean preventItemLoss;
 
     // Track whether members have entered the dungeon world
-    private final Set<UUID> membersEnteredDungeon = new HashSet<>();
+    private final Set<UUID> membersEnteredDungeon = ConcurrentHashMap.newKeySet();
 
     // Session start time
     private final long sessionStartTime;

@@ -244,7 +244,7 @@ public class DungeonEntityDensitySystem extends TickingSystem<EntityStore> {
                 }
             });
 
-            log(Level.INFO, "Density check in %s: despawned %d excess NPCs (total: %d, max/cluster: %d, radius: %.1f)",
+            log(Level.FINE, "Density check in %s: despawned %d excess NPCs (total: %d, max/cluster: %d, radius: %.1f)",
                 world.getName(), totalRemoved, npcs.size(), maxPerCluster, clusterRadius);
         }
     }

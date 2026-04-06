@@ -135,7 +135,7 @@ public class DungeonNPCScalingSystem extends HolderSystem<EntityStore> {
             return;
         }
 
-        log(Level.INFO, "Processing NPC '%s' in dungeon world %s", npcEntity.getRoleName(), world.getName());
+        log(Level.FINE, "Processing NPC '%s' in dungeon world %s", npcEntity.getRoleName(), world.getName());
 
         // Get UUID for caching
         UUIDComponent uuidComponent = holder.getComponent(uuidType);
@@ -169,7 +169,7 @@ public class DungeonNPCScalingSystem extends HolderSystem<EntityStore> {
         updateNameplate(holder, npcEntity, level);
 
         if (isBoss) {
-            log(Level.INFO, "Scaled BOSS NPC '%s' to level %d (difficulty: %.1fx) in world %s",
+            log(Level.FINE, "Scaled BOSS NPC '%s' to level %d (difficulty: %.1fx) in world %s",
                 roleName, level, difficultyMultiplier, world.getName());
         } else {
             log(Level.FINE, "Scaled dungeon NPC '%s' to level %d in world %s",
@@ -324,7 +324,7 @@ public class DungeonNPCScalingSystem extends HolderSystem<EntityStore> {
         // No explicit config - default to party level scaling
         // This ensures dungeon NPCs are appropriate for the party
         int finalLevel = Math.max(1, Math.min(partyLevel, systemMax));
-        log(Level.INFO, "Calculated enemy level %d (party level: %d, no explicit config)", finalLevel, partyLevel);
+        log(Level.FINE, "Calculated enemy level %d (party level: %d, no explicit config)", finalLevel, partyLevel);
         return finalLevel;
     }
 

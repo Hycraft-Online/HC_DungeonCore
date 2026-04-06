@@ -16,6 +16,7 @@ import com.hypixel.hytale.server.core.asset.type.gameplay.GameplayConfig;
 import com.hypixel.hytale.server.core.event.events.player.AddPlayerToWorldEvent;
 import com.hypixel.hytale.server.core.event.events.player.PlayerDisconnectEvent;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
+import com.hypixel.hytale.server.core.universe.world.events.RemoveWorldEvent;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
@@ -57,7 +58,7 @@ public class HC_DungeonCorePlugin extends JavaPlugin {
 
     public static final String VERSION = "1.0.0";
 
-    private static HC_DungeonCorePlugin instance;
+    private static volatile HC_DungeonCorePlugin instance;
 
     // ECS Systems
     private DungeonRespawnSystem dungeonRespawnSystem;
@@ -155,6 +156,15 @@ public class HC_DungeonCorePlugin extends JavaPlugin {
         });
         this.getLogger().at(Level.INFO).log("Registered PlayerDisconnectEvent handler");
 
+        // Handle world removal - clean up leaked sessions when dungeon worlds are removed (HYC-248)
+        this.getEventRegistry().registerGlobal(RemoveWorldEvent.class, event -> {
+            DungeonSessionManager manager = DungeonSessionManager.getInstance();
+            if (manager != null) {
+                manager.handleWorldRemoved(event.getWorld());
+            }
+        });
+        this.getLogger().at(Level.INFO).log("Registered RemoveWorldEvent handler");
+
         // ═══════════════════════════════════════════════════════
         // STARTUP COMPLETE
         // ═══════════════════════════════════════════════════════
@@ -250,6 +260,7 @@ public class HC_DungeonCorePlugin extends JavaPlugin {
             }
         }
 
+        instance = null;
         this.getLogger().at(Level.INFO).log("HC_DungeonCore disabled");
     }
 }

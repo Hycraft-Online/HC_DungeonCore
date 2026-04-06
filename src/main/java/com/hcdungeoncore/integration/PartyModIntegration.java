@@ -16,19 +16,19 @@ import java.util.logging.Level;
  */
 public class PartyModIntegration {
 
-    private static boolean initialized = false;
-    private static boolean available = false;
+    private static volatile boolean initialized = false;
+    private static volatile boolean available = false;
 
     // Cached reflection objects for performance
-    private static Object partyModInstance = null;
-    private static Object partyManagerInstance = null;
-    private static Method getPartyByPlayerMethod = null;
-    private static Method getMemberCountMethod = null;
-    private static Method isLeaderMethod = null;
-    private static Method getIdMethod = null;
-    private static Method getMemberUuidsMethod = null;
-    private static Method getNameMethod = null;
-    private static Method getMaxMembersMethod = null;
+    private static volatile Object partyModInstance = null;
+    private static volatile Object partyManagerInstance = null;
+    private static volatile Method getPartyByPlayerMethod = null;
+    private static volatile Method getMemberCountMethod = null;
+    private static volatile Method isLeaderMethod = null;
+    private static volatile Method getIdMethod = null;
+    private static volatile Method getMemberUuidsMethod = null;
+    private static volatile Method getNameMethod = null;
+    private static volatile Method getMaxMembersMethod = null;
 
     /**
      * Check if PartyMod is available without loading PartyMod classes.

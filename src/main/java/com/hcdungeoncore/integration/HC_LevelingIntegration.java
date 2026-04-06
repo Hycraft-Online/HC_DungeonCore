@@ -20,8 +20,8 @@ import java.util.logging.Level;
  */
 public class HC_LevelingIntegration {
 
-    private static boolean initialized = false;
-    private static boolean available = false;
+    private static volatile boolean initialized = false;
+    private static volatile boolean available = false;
 
     /**
      * Check if HC_Leveling is available without loading classes.
